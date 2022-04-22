@@ -2,6 +2,7 @@
 const Sauce = require('../models/sauces');
 // Chargement du package filesystem permet de modifier me systeme de fichiers notament la suppression
 const fs = require('fs');
+const User = require('../models/user');
 
 // exports.getOneSauce = (req, res, next) => {
 //     Sauce.findOne({ _id: req.params.id })
@@ -51,24 +52,45 @@ exports.getAllSauce = async (req, res, next) => {
 
 exports.createSauce = async (req, res, next) => {
     try {
-        // cree un objet json contenant les caractéristiques de la sauce crée
-        const sauceObject = JSON.parse(req.body.sauce);
-        // console.log('sauceObject');
-        // console.log(sauceObject);
-        // Supprime le faux id envoyer par la front ( mongoose créer un _id automatically)
-        delete sauceObject._id;
-        // console.log("id sauce");
-        // console.log(sauceObject._id);
-        // crée la nouvelle sauce 
+         // cree un objet json contenant les caractéristiques de la sauce crée
+         const sauceObject = JSON.parse(req.body.sauce);
+         // Supprime le faux id envoyer par la front ( mongoose créer un _id automatically)
+         delete sauceObject._id;
+         // crée la nouvelle sauce 
         const sauce = new Sauce({
             // spread (...) fait une copie tous les elements de sauceObject
             ...sauceObject,
             // Url complete de notre image, req.protocol permet d optenir le http, req.get('host') la partie serveur
             imageUrl: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
         });
-        // Sauvegarde la sauce dans la BDD
-        await sauce.save();
-        res.status(201).json({ message: 'Sauce enregistré' });
+        console.log(sauce);
+        console.log(sauceObject);
+        // Option 1 Si un des elements est false renvoie une erreur
+        if (
+            !sauceObject.userId ||
+            !sauceObject.name ||
+            !sauceObject.manufacturer ||
+            !sauceObject.description ||
+            !sauceObject.mainPepper ||
+            !sauceObject.heat ||
+            !sauce.imageUrl
+            ) {
+                return res.status(400).json({ error : "Il manque des elements a renseigner dans la sauce"});
+        } else {
+            // Sauvegarde la sauce dans la BDD
+            await sauce.save();
+            res.status(201).json({ message: 'Sauce enregistré' });
+        }
+        // Option 2 Boucle sur chaque element de sauceObject si null renvoie une erreur 
+        // for (const key in sauceObject) {
+        //     if(key == null) {
+        //         return res.status(400).json({ error : "Il manque des elements a renseigner dans la sauce"});
+        //     } else {
+        //         //Sauvegarde la sauce dans la BDD
+        //         await sauce.save();
+        //         res.status(201).json({ message: 'Sauce enregistré' });
+        //     }
+        // }
     } catch (error) {
         res.status(400).json({ error : error});
     }
@@ -97,24 +119,37 @@ exports.createSauce = async (req, res, next) => {
 
 exports.modifySauce = async (req, res, next) => {
     try {
-        // sauceObject a pour valeur req.file
-        const sauceObject = req.file;
-        // si req.file existe 
-        if (req.file) {
-            // on recupere les carac de la sauce et on traite la nouvelle image
-            const sauceObject = {
-                ...JSON.parse(req.body.sauce),
-                imageUrl: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
-            };
+        const user = await User.findOne({ userId: req.body.userId })
+        if (user) {
+            // charge la sauce en fonction de l'id dans la req.params
+            const sauceExist = await Sauce.findOne({ _id: req.params.id });
+            if (sauceExist) {
+                // sauceObject a pour valeur req.body
+                const sauceObject = req.body;
+                console.log("reqbody");
+                console.log(sauceObject);
+                // si req.file existe 
+                if (req.file) {
+                    // on recupere les carac de la sauce et on traite la nouvelle image
+                    const sauceObject = {
+                        ...JSON.parse(req.body.sauce),
+                        imageUrl: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
+                    };
+                } else {
+                    // sinon on recupere juste les caractéristiques
+                    const sauceObject = {
+                        ...req.body
+                    };
+                }
+                // on met a jour la sauce avec les nouveaux params qui va ecrasser l ancienne
+                const sauce = await Sauce.updateOne({ _id: req.params.id }, { ...sauceObject, _id: req.params.id });
+                res.status(200).json({ message: 'Sauce modifié ' });
+            } else {
+                throw new Error("La sauce n'existe pas");
+            }
         } else {
-            // sinon on recupere juste les caractéristiques
-            const sauceObject = {
-                ...req.body
-            };
+            throw new Error("Vous n'avez pas les droit sur cette sauce");
         }
-        // on met a jour la sauce avec les nouveaux params qui va ecrasser l ancienne
-        const sauce = await Sauce.updateOne({ _id: req.params.id }, { ...sauceObject, _id: req.params.id });
-        res.status(200).json({ message: 'Sauce modifié ' });
 
     } catch (error) {
         res.status(400).json({ error });
@@ -137,18 +172,25 @@ exports.modifySauce = async (req, res, next) => {
 
 exports.deleteSauce = async (req, res, next) => {
     try {
-        // charge la sauce en fonction de l'id dans la req.params
-        const sauce = await Sauce.findOne({ _id: req.params.id });
-        // separation du nom du fichier a partir du segment images
-        const filename = sauce.imageUrl.split('/images/')[1];
-        // console.log("filename");
-        // console.log(filename);
-            // suppression de l'image avec la méthode unlink dans le dossier images
-            fs.unlink(`images/${filename}`, async () => {
-                // Supprime la sauce qui a pour id le contenu de req.params
-                const sauce = await Sauce.deleteOne({ _id: req.params.id })
-                res.status(200).json({ message: 'Sauce supprimé ' })
-            });
+        const user = await User.findOne({ userId: req.body.userId })
+        if (user) {
+            // charge la sauce en fonction de l'id dans la req.params
+            const sauce = await Sauce.findOne({ _id: req.params.id });
+            if (sauce) {
+                // separation du nom du fichier a partir du segment images
+                const filename = sauce.imageUrl.split('/images/')[1];
+                // suppression de l'image avec la méthode unlink dans le dossier images
+                fs.unlink(`images/${filename}`, async () => {
+                    // Supprime la sauce qui a pour id le contenu de req.params
+                    const sauce = await Sauce.deleteOne({ _id: req.params.id })
+                    res.status(200).json({ message: 'Sauce supprimé ' })
+                });
+            } else {
+                throw new Error("La sauce n'existe pas");
+            }
+        } else {
+            throw new Error("Vous n'avez pas les droit sur cette sauce");
+        }     
     } catch (error) {
         res.status(500).json({ error });
     }
@@ -235,7 +277,6 @@ exports.likeSauce = async (req, res, next) => {
                         }
                     )
                 }
-
                 //
                 if (sauce.usersDisliked.includes(req.body.userId) && req.body.like === 0) {
                     const nolike = await Sauce.updateOne(
