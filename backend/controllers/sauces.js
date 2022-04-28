@@ -3,7 +3,18 @@ const Sauce = require('../models/sauces');
 // Chargement du package filesystem permet de modifier me systeme de fichiers notament la suppression
 const fs = require('fs');
 const User = require('../models/user');
+const jwt = require('jsonwebtoken');
 
+function getUser (req) {
+    // donne pour valeur a token tout ce qu il y a apres le premiers espace du contenu d'authorization
+    const token = req.headers.authorization.split(' ')[1];
+    // dechiffre le token a l'aide de la clé secrete et du token presant dans authorization
+    const decodedToken = jwt.verify(token, `${process.env.MY_TOKEN}`);
+    //console.log(decodedToken);
+    // Récuperation de l'userId presente dans l'objet decodedToken
+    const userId = decodedToken.userId;
+    return userId;
+}
 // exports.getOneSauce = (req, res, next) => {
 //     Sauce.findOne({ _id: req.params.id })
 //         .then(sauce => res.status(200).json(sauce))
@@ -119,11 +130,10 @@ exports.createSauce = async (req, res, next) => {
 
 exports.modifySauce = async (req, res, next) => {
     try {
-        const user = await User.findOne({ userId: req.body.userId })
-        if (user) {
-            // charge la sauce en fonction de l'id dans la req.params
-            const sauceExist = await Sauce.findOne({ _id: req.params.id });
-            if (sauceExist) {
+        // charge la sauce en fonction de l'id dans la req.params
+        const sauceExist = await Sauce.findOne({ _id: req.params.id });
+        if (sauceExist) {
+            if (sauceExist.userId === getUser(req)) {
                 // sauceObject a pour valeur req.body
                 const sauceObject = req.body;
                 console.log("reqbody");
@@ -143,13 +153,14 @@ exports.modifySauce = async (req, res, next) => {
                 }
                 // on met a jour la sauce avec les nouveaux params qui va ecrasser l ancienne
                 const sauce = await Sauce.updateOne({ _id: req.params.id }, { ...sauceObject, _id: req.params.id });
-                res.status(200).json({ message: 'Sauce modifié ' });
+                res.status(201).json({ message: 'Sauce modifié ' });
             } else {
-                throw new Error("La sauce n'existe pas");
+                throw new Error("Mauvais droit");
             }
         } else {
-            throw new Error("Vous n'avez pas les droit sur cette sauce");
+            throw new Error("La sauce n'existe pas");
         }
+
 
     } catch (error) {
         res.status(400).json({ error });
@@ -172,11 +183,11 @@ exports.modifySauce = async (req, res, next) => {
 
 exports.deleteSauce = async (req, res, next) => {
     try {
-        const user = await User.findOne({ userId: req.body.userId })
-        if (user) {
-            // charge la sauce en fonction de l'id dans la req.params
-            const sauce = await Sauce.findOne({ _id: req.params.id });
-            if (sauce) {
+        // charge la sauce en fonction de l'id dans la req.params
+        const sauce = await Sauce.findOne({ _id: req.params.id });
+        if (sauce) {
+            if (sauce.userId === getUser(req)) {
+                console.log('test');
                 // separation du nom du fichier a partir du segment images
                 const filename = sauce.imageUrl.split('/images/')[1];
                 // suppression de l'image avec la méthode unlink dans le dossier images
@@ -186,13 +197,14 @@ exports.deleteSauce = async (req, res, next) => {
                     res.status(200).json({ message: 'Sauce supprimé ' })
                 });
             } else {
-                throw new Error("La sauce n'existe pas");
+                throw new Error("Mauvais droit");
             }
+
         } else {
-            throw new Error("Vous n'avez pas les droit sur cette sauce");
-        }     
+            throw new Error("La sauce n'existe pas");
+        }    
     } catch (error) {
-        res.status(500).json({ error });
+        res.status(400).json({ error });
     }
 }
 
@@ -244,6 +256,7 @@ exports.likeSauce = async (req, res, next) => {
         const sauce = await Sauce.findOne({ _id: req.params.id });
         console.log(sauce);
         console.log(req.body);
+        if (sauce) {
             //Si usersLiked est false et like = 1, l'utilisateur aime (= like) la sauce
             if (!sauce.usersLiked.includes(req.body.userId) && req.body.like === 1) {
                 const like = await Sauce.updateOne(
@@ -264,34 +277,33 @@ exports.likeSauce = async (req, res, next) => {
                     }
                 )
             }
-            try {
-                // Si like = 0, l'utilisateur annule son like ou dislike
-                if (sauce.usersLiked.includes(req.body.userId) && req.body.like === 0) {
-                    const nolike = await Sauce.updateOne(
-                        { _id: req.params.id},
-                        { 
-                            // inc incrémente une valeur
-                            $inc : {likes: -1},
-                            // pull retire un elements array
-                            $pull : {usersLiked: req.body.userId}
-                        }
-                    )
-                }
-                //
-                if (sauce.usersDisliked.includes(req.body.userId) && req.body.like === 0) {
-                    const nolike = await Sauce.updateOne(
-                        { _id: req.params.id},
-                        { 
-                            $inc : {dislikes: -1},
-                            $pull : {usersDisliked: req.body.userId}
-                        }
-                    )
-                }
-            } catch (error) {
-                res.status(400).json({ error});
-            }
 
-            res.status(200).json({ message: 'choix modifié'});
+            // Si like = 0, l'utilisateur annule son like ou dislike
+            if (sauce.usersLiked.includes(req.body.userId) && req.body.like === 0) {
+                const nolike = await Sauce.updateOne(
+                    { _id: req.params.id},
+                    { 
+                        // inc incrémente une valeur
+                        $inc : {likes: -1},
+                        // pull retire un elements array
+                        $pull : {usersLiked: req.body.userId}
+                    }
+                )
+            }
+            //
+            if (sauce.usersDisliked.includes(req.body.userId) && req.body.like === 0) {
+                const nolike = await Sauce.updateOne(
+                    { _id: req.params.id},
+                    { 
+                        $inc : {dislikes: -1},
+                        $pull : {usersDisliked: req.body.userId}
+                    }
+                )
+            }
+            res.status(201).json({ message: 'choix modifié'});
+        } else {
+            throw new Error("La sauce n'existe pas");
+        } 
     } catch (error) {
         res.status(400).json({ error});
     }

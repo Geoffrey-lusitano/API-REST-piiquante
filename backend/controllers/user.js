@@ -32,7 +32,7 @@ exports.signup = async (req, res, next) => {
         await user.save();
         res.status(201).json({ message: 'Compte créé !'});
     } catch (error) {
-        res.status(501).json({ error});
+        res.status(400).json({ error});
     }
 };
 
@@ -92,11 +92,11 @@ exports.login = async (req, res) => {
                             { expiresIn:'24h'})});
                 }
             } catch (error) {
-                res.status(503).json({ error})
+                res.status(401).json({ error})
             }
         }
     } catch (error) {
-        res.status(502).json({ error})
+        res.status(401).json({ error})
     }
 
 
